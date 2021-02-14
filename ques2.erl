@@ -1,5 +1,5 @@
 -module(ques2).
--export([main/1, inputGraph/1, takeEdges/3]).
+-export([main/1, inputGraph/1, takeEdges/3, eachProcess/0]).
 
 %% Edge_list is a dictionary Vertex -> [Edge], where Edge = {To, Weight}
 inputGraph(InF) ->
@@ -15,10 +15,11 @@ inputGraph(InF) ->
 	Edge_list = dict:new(),
 	{Edge_list1, Source} = takeEdges(Input_file, Edge_list, 0),
 	file:close(Input_file),
-	dict:fetch(2, Edge_list1).
+	{Edge_list1, Source, Processes, Vertices, Edges}.
 
 takeEdges(InF, Edge_list, Source) ->
 	case io:get_line(InF, "") of
+
 		eof -> {Edge_list, Source};
 
 		Line -> String_list = string:tokens(string:trim(Line)," "),
@@ -37,10 +38,26 @@ takeEdges(InF, Edge_list, Source) ->
 			end  % This is very important (learn how to use nested Case, otherwise u r doomed)
 	end.
 
+eachProcess() ->
+	1.
 % dijkstra() ->
 
+
+createProcesses(Num_Id, Curr, Processes) ->
+	Pid = spawn('ques2', eachProcess, []),
+	Num_Id1 = dict:store(Curr, Pid, Num_Id),
+	if
+		Curr == Processes ->
+			Num_Id1;
+		true ->
+			createProcesses(Num_Id1, Curr+1, Processes)
+	end.
+
 main([InF, OutF]) ->
-	Val = inputGraph(InF),
+	{Edge_list, Source, Processes, Vertices, Edges} = inputGraph(InF),
+	N = dict:new(),
+	Num = dict:store(1, self(), N),
+	Num_Id = createProcesses(Num, 1, Processes),
 	{ok, Out} = file:open(OutF, [write]), % open the output file
-	io:format(Out, "~w", [Val]),
+	io:format(Out, "~w~n", Num_Id),
 	file:close(Out).
