@@ -38,16 +38,30 @@ takeEdges(InF, Edge_list, Source) ->
 					takeEdges(InF, Edge_list2, Source)
 			end  % This is very important (learn how to use nested Case, otherwise u r doomed)
 	end.
+
+statusUpdate([], _, _, Status) ->
+	Status;
+statusUpdate([H | T], D, U, Status) ->
+	{To, Weight} = H,
+	Res = dict:find(To, Status),
+	if
+		Res /= error  ->
+			{Dist, St} = dict:fetch(To, Status),
+			if
+				Dist > Weight + D ->
+					Status1 = dict:store(To, Weight + D, Status),
+					statusUpdate(T, D, U, Status1)
+			end	
+	end.
+
 % Processes -> no. of processes , K ->, Vertices -> no. of vertices
-% Status is a list of {distance, visited/unvisited, Vertex}
+% Status is a dict Vertex -> {distance, visited/unvisited}
 runProcess(Edge_list, Processes, K, Vertices, Status, Root_pid) ->
 	% create list of un-visited vertices (use list comprehension)
-	% compute min
-	% Send min to root  lists:foldl(fun({X, W}, {Y, Z}) -> if X < Y -> {X, W}; true -> {Y, Z} end end, hd(T), tl(T)).
-	% Receive global min(will receive stop on completion)
-	% Update Status
-	Unvisited = [{D, V} || {D, X, V} <- Status, X == unvisited],
+	StatusList = dict:to_list(Status),
+	Unvisited = [{D, V} || {V, {D, X}} <- StatusList, X == unvisited],
 	Len = length(Unvisited),
+	% compute min
 	MinVal = case Len > 0 of
 		true ->
 			lists:foldl(fun({X, V1}, {Y, V2}) -> if X < Y -> {X, V1}; true -> {Y, V2} end end, hd(Unvisited), tl(Unvisited));
@@ -55,14 +69,22 @@ runProcess(Edge_list, Processes, K, Vertices, Status, Root_pid) ->
 			{infinity, 0}
 	end,
 	io:format("~w ~n", [MinVal]),
+	% Send min to root
+	% Root_pid ! MinVal,
+	% Receive global min(will receive stop on completion)
+	% receive {D, U} -> ok end,
+	{D, U} = {2, 2},
+	% Update Status
+	NewStatus = statusUpdate(dict:fetch(U, Edge_list), D, U, Status),
+	% mark U as visited if present in Status
 	1.
 
 eachProcess() ->
-	receive Status -> ok end,
+	receive Sta -> ok end,
+	Status = dict:from_list(Sta),
 	receive {Edge_list, Processes, K, Vertices, Root_pid} -> ok end,
 	receive MyVertices -> ok end,
-	runProcess(Edge_list, Processes, K, Vertices, Status, Root_pid),
-	1.
+	runProcess(Edge_list, Processes, K, Vertices, Status, Root_pid).
 % dijkstra() ->
 
 % creates processes and stores their PID in Num_Id dictionary
@@ -106,7 +128,7 @@ main([InF, OutF]) ->
 
 	VList = lists:seq(1, Vertices), % list of numbers of vertices
 	VertexDict = splitVertices(dict:new(), VList, floor(Vertices/Processes), 1, Processes),
-	Sta = [if Y > 1 -> {Y, {infinity, unvisited, Y}}; true -> {Y, {0, unvisited, Y}} end || Y <- VList],
+	Sta = [if Y > 1 -> {Y, {Y, {infinity, unvisited}}}; true -> {Y, {Y,{0, unvisited}}} end || Y <- VList],
 	Status = dict:from_list(Sta),
 
 	lists:foreach(fun(K) -> sendSplitStatus(Status, dict:fetch(K, VertexDict), dict:fetch(K, Num_Id)) end, lists:seq(2, Processes)),
