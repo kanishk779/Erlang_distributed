@@ -170,6 +170,7 @@ rootProcess(Status, Edge_list, Processes, Num_Id) ->
 			lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! GloabalMin end, lists:seq(2, Processes))
 	end,
 	% update the status dictionary by using dijkstra algo
+	{D, U} = GloabalMin,
 	if
 		D /= infinity ->
 			% Update Status
@@ -179,9 +180,9 @@ rootProcess(Status, Edge_list, Processes, Num_Id) ->
 			if
 				Res /= error ->
 					{ok, {VD, _}} = Res,
-					runProcess(Edge_list, dict:store({VD, visited}, NewStatus), Root_pid);
+					rootProcess(dict:store({VD, visited}, Edge_list, NewStatus), Processes, Num_Id);
 				true ->
-					runProcess(Edge_list, NewStatus, Root_pid)
+					rootProcess(NewStatus, Edge_list, Processes, Num_Id)
 			end
 	end.
 
