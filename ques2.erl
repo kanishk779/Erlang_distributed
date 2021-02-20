@@ -70,10 +70,10 @@ runProcess(Edge_list, Status, Root_pid) ->
 	end,
 	io:format("~w ~n", [MinVal]),
 	% Send min to root
-	% Root_pid ! MinVal,
+	Root_pid ! MinVal,
 	% Receive global min(will receive stop on completion)
-	% receive {D, U} -> ok end,
-	{D, U} = {3, 3},
+	receive {D, U} -> ok end,
+	% {D, U} = {3, 3},
 	if
 		D /= infinity ->
 			% Update Status
@@ -155,7 +155,7 @@ rootProcess(Status, Edge_list, Processes, Num_Id) ->
 	io:format("~w ~n", [MinVal]),
 	% receive from all the process their minimum vertex, distance.
 	MinList = receiveMinimum([MinVal], 2, Processes),
-	% if minimum is infinity than end the algorithm and inform other processes as well
+	% if minimum is infinity than end the algorithm and inform other processes as well(Just by sending infinity)
 	Len1 = length(MinList),
 	GlobalMin = case Len1 > 0 of
 		true ->
@@ -163,11 +163,28 @@ rootProcess(Status, Edge_list, Processes, Num_Id) ->
 		false ->
 			{infinity, 0}
 	end,
-	io:format("~w ~n", [GlobalMin]),
+	io:format("global min ~w ~n", [GlobalMin]),
+	% send the Distance and Node of GloabalMin to all other processes
+	if
+		Processes > 1 ->
+			lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! GloabalMin end, lists:seq(2, Processes))
+	end,
 	% update the status dictionary by using dijkstra algo
-	% send the updated dictionary to all other processes
+	if
+		D /= infinity ->
+			% Update Status
+			NewStatus = statusUpdate(dict:fetch(U, Edge_list), D, U, Status),
+			% mark U as visited if present in Status
+			Res = dict:find(U, Status),
+			if
+				Res /= error ->
+					{ok, {VD, _}} = Res,
+					runProcess(Edge_list, dict:store({VD, visited}, NewStatus), Root_pid);
+				true ->
+					runProcess(Edge_list, NewStatus, Root_pid)
+			end
+	end.
 
-	1.
 %% each process will send infinity if there is no unvisited vertex
 main([InF, OutF]) ->
 	{Edge_list, Source, Processes, Vertices, Edges} = inputGraph(InF),
@@ -180,9 +197,12 @@ main([InF, OutF]) ->
 	VertexDict = splitVertices(dict:new(), VList, floor(Vertices/Processes), 1, Processes),
 	Sta = [if Y > 1 -> {Y, {Y, {infinity, unvisited}}}; true -> {Y, {Y,{0, unvisited}}} end || Y <- VList],
 	Status = dict:from_list(Sta),
-
-	lists:foreach(fun(K) -> sendSplitStatus(Status, dict:fetch(K, VertexDict), dict:fetch(K, Num_Id)) end, lists:seq(2, Processes)),
-	lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! {Edge_list, self()} end, lists:seq(2, Processes)),
+	% Send data to other processes only if they exist
+	if
+		Processes > 1 ->
+			lists:foreach(fun(K) -> sendSplitStatus(Status, dict:fetch(K, VertexDict), dict:fetch(K, Num_Id)) end, lists:seq(2, Processes)),
+			lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! {Edge_list, self()} end, lists:seq(2, Processes))
+	end,
 	RootSta = [dict:fetch(X, Status) || X <- dict:fetch(1, VertexDict)],
 	RootStatus = dict:from_list(RootSta),
 	rootProcess(RootStatus, Edge_list, Processes, Num_Id),
