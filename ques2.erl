@@ -70,14 +70,23 @@ runProcess(Edge_list, Processes, K, Vertices, Status, Root_pid) ->
 	end,
 	io:format("~w ~n", [MinVal]),
 	% Send min to root
-	% Root_pid ! MinVal,
+	Root_pid ! MinVal,
 	% Receive global min(will receive stop on completion)
-	% receive {D, U} -> ok end,
-	{D, U} = {2, 2},
-	% Update Status
-	NewStatus = statusUpdate(dict:fetch(U, Edge_list), D, U, Status),
-	% mark U as visited if present in Status
-	1.
+	receive {D, U} -> ok end,
+	if
+		D /= infinity ->
+			% Update Status
+			NewStatus = statusUpdate(dict:fetch(U, Edge_list), D, U, Status),
+			% mark U as visited if present in Status
+			Res = dict:find(U, Status),
+			if
+				Res /= error ->
+					{ok, {VD, _}} = Res,
+					runProcess(Edge_list, Processes, K, Vertices, dict:store({VD, visited}, NewStatus), Root_pid);
+				true ->
+					runProcess(Edge_list, Processes, K, Vertices, NewStatus, Root_pid)
+			end
+	end.
 
 eachProcess() ->
 	receive Sta -> ok end,
