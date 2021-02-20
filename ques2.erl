@@ -161,7 +161,6 @@ rootProcess(Status, Edge_list, Processes, Num_Id) ->
 		false ->
 			{infinity, 0}
 	end,
-	% io:format("root MinVal ~w ~n", [MinVal]),
 	% receive from all the process their minimum vertex, distance.
 	MinList = receiveMinimum([MinVal], 2, Processes),
 	% io:format("~w ~n", [MinList]),
@@ -177,7 +176,8 @@ rootProcess(Status, Edge_list, Processes, Num_Id) ->
 	% send the Distance and Node of GloabalMin to all other processes
 	if
 		Processes > 1 ->
-			lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! GlobalMin end, lists:seq(2, Processes))
+			lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! GlobalMin end, lists:seq(2, Processes));
+		true -> 1
 	end,
 	% update the status dictionary by using dijkstra algo
 	{D, U} = GlobalMin,
@@ -215,7 +215,9 @@ main([InF, OutF]) ->
 	if
 		Processes > 1 ->
 			lists:foreach(fun(K) -> sendSplitStatus(Status, dict:fetch(K, VertexDict), dict:fetch(K, Num_Id)) end, lists:seq(2, Processes)),
-			lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! {Edge_list, self()} end, lists:seq(2, Processes))
+			lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! {Edge_list, self()} end, lists:seq(2, Processes));
+		true ->
+			1
 	end,
 	RootSta = [dict:fetch(X, Status) || X <- dict:fetch(1, VertexDict)],
 	RootStatus = dict:from_list(RootSta),
