@@ -36,14 +36,13 @@ takeEdges(InF, Edge_list, Source) ->
 					Edge_list1 = dict:append(From, {To, W}, Edge_list),
 					Edge_list2 = dict:append(To, {From, W}, Edge_list1),
 					takeEdges(InF, Edge_list2, Source)
-			end  % This is very important (learn how to use nested Case, otherwise u r doomed)
+			end  % This is very important (learn how to use nested Case/if 's, otherwise u r doomed)
 	end.
 
 statusUpdate([], _, _, Status) ->
 	Status;
 statusUpdate([H | T], D, U, Status) ->
 	{To, Weight} = H,
-	% io:format("status ~w~n", [H]),
 	Res = dict:find(To, Status),
 	if
 		Res /= error  ->
@@ -59,7 +58,6 @@ statusUpdate([H | T], D, U, Status) ->
 			statusUpdate(T, D, U, Status)
 	end.
 
-% Processes -> no. of processes , K ->, Vertices -> no. of vertices
 % Status is a dict Vertex -> {distance, visited/unvisited}
 runProcess(Edge_list, Status, Root_pid) ->
 	% create list of un-visited vertices (use list comprehension)
@@ -83,7 +81,6 @@ runProcess(Edge_list, Status, Root_pid) ->
 			% Update Status
 			NewStatus = statusUpdate(dict:fetch(U, Edge_list), D, U, Status),
 			% mark U as visited if present in Status
-			% io:format("new status : ~w ~n", [dict:to_list(NewStatus)]),
 			Res = dict:find(U, Status),
 			if
 				Res /= error ->
@@ -93,9 +90,8 @@ runProcess(Edge_list, Status, Root_pid) ->
 					runProcess(Edge_list, NewStatus, Root_pid)
 			end;
 		true ->
-			Final = [{V, D} || {V, {D, _}} <- dict:to_list(Status)],
-			lists:foreach(fun({V, D}) -> io:format("~w ~w ~n",[V, D]) end, Final),
-			1
+			Final = [{V, Dist} || {V, {Dist, _}} <- dict:to_list(Status)],
+			Root_pid ! Final % Send final status containing distances of every vertex to root
 	end.
 
 eachProcess() ->
@@ -103,24 +99,20 @@ eachProcess() ->
 	Status = dict:from_list(Sta),
 	receive {Edge_list, Root_pid} -> ok end,
 	runProcess(Edge_list, Status, Root_pid).
-% dijkstra() ->
 
 % creates processes and stores their PID in Num_Id dictionary
-createProcesses(Num_Id, Curr, Processes) ->
+createProcesses(Num_Id, Curr, Processes) when Curr =< Processes ->
+	Pid = spawn(?MODULE, eachProcess, []),
+	Num_Id1 = dict:store(Curr, Pid, Num_Id),
 	if
-		Curr > Processes ->
-			Num_Id; % If there is only one process, then no need to spawn aditional processes
+		Curr == Processes ->
+			Num_Id1;
 		true ->
-			Pid = spawn(?MODULE, eachProcess, []),
-			Num_Id1 = dict:store(Curr, Pid, Num_Id),
-			if
-				Curr == Processes ->
-					Num_Id1;
-				true ->
-					createProcesses(Num_Id1, Curr+1, Processes)
-			end
-	end.
-	
+			createProcesses(Num_Id1, Curr+1, Processes)
+	end;
+createProcesses(Num_Id, Curr, Processes) when Curr > Processes ->
+	Num_Id. % If there is only one process, then no need to spawn aditional processes
+
 % Split the vertices equally among all the processes
 splitVertices(VertexDict, L, N, Curr, Processes) ->
 	if Curr == Processes ->
@@ -131,37 +123,33 @@ splitVertices(VertexDict, L, N, Curr, Processes) ->
 		VertexDict1 = dict:store(Curr, L1, VertexDict),
 		splitVertices(VertexDict1, L2, N, Curr+1, Processes)
 	end.
+
 sendSplitStatus(Status, VertexList, PID) ->
 	PID ! [dict:fetch(X, Status) || X <- VertexList].
 
-receiveMinimum(MinList, Curr, Processes) ->
+receiveMinimum(MinList, Curr, Processes) when Curr =< Processes ->
+	receive {Dist, Vertex} -> ok end,
+	NewList = MinList ++ [{Dist, Vertex}], % Append the received data to the MinList
 	if
-		Curr > Processes ->
-			MinList;
+		Curr == Processes ->
+			NewList;
 		true ->
-			receive Data -> ok end,
-			NewList = MinList ++ [Data], % Append the received data to the MinList
-			if
-				Curr == Processes ->
-					NewList;
-				true ->
-					receiveMinimum(NewList, Curr+1, Processes)
-			end
-	end.
-receiveFinalStatus(Curr, Processes, DistList) ->
+			receiveMinimum(NewList, Curr+1, Processes)
+	end;
+receiveMinimum(MinList, Curr, Processes) when Curr > Processes ->
+	MinList.
+
+receiveFinalStatus(Curr, Processes, DistList) when Curr =< Processes ->
+	receive PartialList -> ok end,
+	NewList = DistList ++ PartialList,
 	if
-		Curr > Processes ->
-			DistList;
+		Curr == Processes ->
+			NewList;
 		true ->
-			receive PartialList -> ok end,
-			NewList = DistList ++ PartialList,
-			if
-				Curr == Processes ->
-					NewList;
-				true ->
-					receiveFinalStatus(Curr+1, Processes, NewList)
-			end
-	end.
+			receiveFinalStatus(Curr+1, Processes, NewList)
+	end;
+receiveFinalStatus(Curr, Processes, DistList) when Curr > Processes ->
+	DistList.
 
 rootProcess(Status, Edge_list, Processes, Num_Id) ->
 	% first find the minimum vertex(unvisited)
@@ -177,7 +165,6 @@ rootProcess(Status, Edge_list, Processes, Num_Id) ->
 	end,
 	% receive from all the process their minimum vertex, distance.
 	MinList = receiveMinimum([MinVal], 2, Processes),
-	% io:format("~w ~n", [MinList]),
 	% if minimum is infinity than end the algorithm and inform other processes as well(Just by sending infinity)
 	Len1 = length(MinList),
 	GlobalMin = case Len1 > 0 of
@@ -191,7 +178,7 @@ rootProcess(Status, Edge_list, Processes, Num_Id) ->
 	if
 		Processes > 1 ->
 			lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! GlobalMin end, lists:seq(2, Processes));
-		true -> 1
+		true -> ok
 	end,
 	% update the status dictionary by using dijkstra algo
 	{D, U} = GlobalMin,
@@ -209,7 +196,7 @@ rootProcess(Status, Edge_list, Processes, Num_Id) ->
 					rootProcess(NewStatus, Edge_list, Processes, Num_Id)
 			end;
 		true ->
-			Final = [{V, D} ||{V, {D, _}} <- dict:to_list(Status)],
+			Final = [{V, Dist} || {V, {Dist, _}} <- dict:to_list(Status)],
 			DistList = receiveFinalStatus(2, Processes, Final),
 			DistList
 	end.
@@ -232,8 +219,7 @@ main([InF, OutF]) ->
 		Processes > 1 ->
 			lists:foreach(fun(K) -> sendSplitStatus(Status, dict:fetch(K, VertexDict), dict:fetch(K, Num_Id)) end, lists:seq(2, Processes)),
 			lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! {Edge_list, self()} end, lists:seq(2, Processes));
-		true ->
-			1
+		true -> ok
 	end,
 	RootSta = [dict:fetch(X, Status) || X <- dict:fetch(1, VertexDict)], % create status for root process
 	RootStatus = dict:from_list(RootSta),
