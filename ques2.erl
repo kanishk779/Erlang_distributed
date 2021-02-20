@@ -17,6 +17,7 @@ inputGraph(InF) ->
 	file:close(Input_file),
 	{Edge_list1, Source, Processes, Vertices, Edges}.
 
+% This reads the data from input file and creates Edge_list and returns the source vertex as well
 takeEdges(InF, Edge_list, Source) ->
 	case io:get_line(InF, "") of
 
@@ -39,15 +40,21 @@ takeEdges(InF, Edge_list, Source) ->
 	end.
 % Processes -> no. of processes , K ->, Vertices -> no. of vertices, 
 runProcess(Edge_list, Processes, K, Vertices, Status, Root_pid) ->
+	% compute min
+	% Send min to root  lists:foldl(fun({X, W}, {Y, Z}) -> if X < Y -> {X, W}; true -> {Y, Z} end end, hd(T), tl(T)).
+	% Receive global min(will receive stop on completion)
+	% Update Status 
 	io:format("~w ~n", [1]),
 	1.
+
 eachProcess() ->
 	receive {Edge_list, Processes, K, Vertices, Status, Root_pid} -> ok end,
+	receive MyVertices -> ok end,
 	runProcess(Edge_list, Processes, K, Vertices, Status, Root_pid),
 	1.
 % dijkstra() ->
 
-
+% creates processes and stores their PID in Num_Id dictionary
 createProcesses(Num_Id, Curr, Processes) ->
 	Pid = spawn(?MODULE, eachProcess, []),
 	Num_Id1 = dict:store(Curr, Pid, Num_Id),
@@ -57,7 +64,7 @@ createProcesses(Num_Id, Curr, Processes) ->
 		true ->
 			createProcesses(Num_Id1, Curr+1, Processes)
 	end.
-
+% Split the vertices equally among all the processes
 splitVertices(VertexDict, L, N, Curr, Processes) ->
 	if Curr == Processes ->
 		VertexDict1 = dict:store(Curr, L, VertexDict),
@@ -67,18 +74,26 @@ splitVertices(VertexDict, L, N, Curr, Processes) ->
 		VertexDict1 = dict:store(Curr, L1, VertexDict),
 		splitVertices(VertexDict1, L2, N, Curr+1, Processes)
 	end.
-	
+rootProcess() ->
+	% first find the minimum vertex(unvisited)
+	% receive from all the process their minimum vertex, distance, their process num
+	% if minimum is infinity than end the process
+	% update the status dictionary by using dijkstra algo
+	% send the updated dictionary to all other processes
+	1.
+%% each process will send infinity if there is no unvisited vertex
 main([InF, OutF]) ->
 	{Edge_list, Source, Processes, Vertices, Edges} = inputGraph(InF),
 	N = dict:new(),
 	% Num_Id is the dictionary which maps process number to process PID
 	Num_Id = createProcesses(N, 2, Processes),
-	Id_list = dict:to_list(Num_Id),
 	{ok, Out} = file:open(OutF, [write]), % open the output file
-	% io:format(Out, "~w~n", Num_Id),
-	io:format(Out, "~w~n", [Id_list]),
+
 	Process_Nums = lists:seq(1, Processes),
-	Status = lists:foreach(fun(Key) -> {if Key == 1 -> 0; true -> infinity end, not_visited} end, Process_Nums),
-	Worker = fun({K, V}) -> V ! {Edge_list, Processes, K, Vertices, Status, self()} end,
-	lists:foreach(Worker, Id_list),
+	VertexDict = splitVertices(dict:new(), lists:seq(1, Vertices), floor(Vertices/Processes), 1, Processes),
+	Sta = [if Y > 1 -> {Y, {infinity, unvisited}}; true -> {Y, {0, unvisited}} end || Y <- Process_Nums],
+	Status = dict:from_list(Sta),
+
+	lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! {Edge_list, Processes, K, Vertices, Status, self()} end, lists:seq(2, Processes)),
+	lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! dict:fetch(K, VertexDict) end, lists:seq(2, Processes)),
 	file:close(Out).
