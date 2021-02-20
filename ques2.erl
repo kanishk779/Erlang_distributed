@@ -1,5 +1,5 @@
 -module(ques2).
--export([main/1, inputGraph/1, takeEdges/3, eachProcess/0, runProcess/6, createProcesses/3, splitVertices/5, sendSplitStatus/3, rootProcess/4]).
+-export([main/1, inputGraph/1, takeEdges/3, eachProcess/0, runProcess/3, createProcesses/3, splitVertices/5, sendSplitStatus/3, rootProcess/4]).
 %% We assume that the graph is connected
 %% Edge_list is a dictionary Vertex -> [Edge], where Edge = {To, Weight}
 inputGraph(InF) ->
@@ -56,7 +56,7 @@ statusUpdate([H | T], D, U, Status) ->
 
 % Processes -> no. of processes , K ->, Vertices -> no. of vertices
 % Status is a dict Vertex -> {distance, visited/unvisited}
-runProcess(Edge_list, Processes, K, Vertices, Status, Root_pid) ->
+runProcess(Edge_list, Status, Root_pid) ->
 	% create list of un-visited vertices (use list comprehension)
 	StatusList = dict:to_list(Status),
 	Unvisited = [{D, V} || {V, {D, X}} <- StatusList, X == unvisited],
@@ -73,6 +73,7 @@ runProcess(Edge_list, Processes, K, Vertices, Status, Root_pid) ->
 	Root_pid ! MinVal,
 	% Receive global min(will receive stop on completion)
 	receive {D, U} -> ok end,
+	% {D, U} = {3, 3},
 	if
 		D /= infinity ->
 			% Update Status
@@ -82,18 +83,17 @@ runProcess(Edge_list, Processes, K, Vertices, Status, Root_pid) ->
 			if
 				Res /= error ->
 					{ok, {VD, _}} = Res,
-					runProcess(Edge_list, Processes, K, Vertices, dict:store({VD, visited}, NewStatus), Root_pid);
+					runProcess(Edge_list, dict:store({VD, visited}, NewStatus), Root_pid);
 				true ->
-					runProcess(Edge_list, Processes, K, Vertices, NewStatus, Root_pid)
+					runProcess(Edge_list, NewStatus, Root_pid)
 			end
 	end.
 
 eachProcess() ->
 	receive Sta -> ok end,
 	Status = dict:from_list(Sta),
-	receive {Edge_list, Processes, K, Vertices, Root_pid} -> ok end,
-	receive MyVertices -> ok end,
-	runProcess(Edge_list, Processes, K, Vertices, Status, Root_pid).
+	receive {Edge_list, Root_pid} -> ok end,
+	runProcess(Edge_list, Status, Root_pid).
 % dijkstra() ->
 
 % creates processes and stores their PID in Num_Id dictionary
@@ -141,6 +141,5 @@ main([InF, OutF]) ->
 	Status = dict:from_list(Sta),
 
 	lists:foreach(fun(K) -> sendSplitStatus(Status, dict:fetch(K, VertexDict), dict:fetch(K, Num_Id)) end, lists:seq(2, Processes)),
-	lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! {Edge_list, Processes, K, Vertices, self()} end, lists:seq(2, Processes)),
-	lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! dict:fetch(K, VertexDict) end, lists:seq(2, Processes)),
+	lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! {Edge_list, self()} end, lists:seq(2, Processes)),
 	file:close(Out).
