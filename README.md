@@ -89,4 +89,26 @@ Above function is executed by the root process.
 
 
 
+```
+receiveMinimum(MinList, Curr, Processes) ->
+```
+Above function receives minimum from all other process. This function is
+executed by root process for all to one reduction of minimum vertex finding.
+
+```
+receiveFinalStatus(Curr, Processes, DistList) ->
+```
+Above function receives the final **Status** dictionary which stores the
+distance from **Source**, from all the processes. It is executed by root process
+on completion of the algorithm.
+
+```
+main([InF, OutF]) ->
+```
+1. Takes the input.
+2. Creates the other processes.
+3. Splits vertices equally among the processes.
+4. Sends the required data to other processes.
+5. Initiates the root process.
+6. Finally prints the result in the output file sorted by the vertex number.
 
