@@ -1,5 +1,5 @@
 -module(ques2).
--export([main/1, inputGraph/1, takeEdges/3, eachProcess/1, runProcess/4, createProcesses/4, splitVertices/5, sendSplitStatus/3, rootProcess/4]).
+-export([main/1, inputGraph/1, takeEdges/3, eachProcess/0, runProcess/3, createProcesses/3, splitVertices/5, sendSplitStatus/3, rootProcess/4]).
 %% We assume that the graph is connected
 %% Edge_list is a dictionary Vertex -> [Edge], where Edge = {To, Weight}
 inputGraph(InF) ->
@@ -61,7 +61,7 @@ statusUpdate([H | T], D, U, Status) ->
 
 % Processes -> no. of processes , K ->, Vertices -> no. of vertices
 % Status is a dict Vertex -> {distance, visited/unvisited}
-runProcess(Edge_list, Status, Root_pid, Out) ->
+runProcess(Edge_list, Status, Root_pid) ->
 	% create list of un-visited vertices (use list comprehension)
 	StatusList = dict:to_list(Status),
 	Unvisited = [{D, V} || {V, {D, X}} <- StatusList, X == unvisited],
@@ -88,9 +88,9 @@ runProcess(Edge_list, Status, Root_pid, Out) ->
 			if
 				Res /= error ->
 					{ok, {VD, _}} = Res,
-					runProcess(Edge_list, dict:store(U , {VD, visited}, NewStatus), Root_pid, Out);
+					runProcess(Edge_list, dict:store(U , {VD, visited}, NewStatus), Root_pid);
 				true ->
-					runProcess(Edge_list, NewStatus, Root_pid, Out)
+					runProcess(Edge_list, NewStatus, Root_pid)
 			end;
 		true ->
 			Final = [{V, D} || {V, {D, _}} <- dict:to_list(Status)],
@@ -98,26 +98,26 @@ runProcess(Edge_list, Status, Root_pid, Out) ->
 			1
 	end.
 
-eachProcess(Out) ->
+eachProcess() ->
 	receive Sta -> ok end,
 	Status = dict:from_list(Sta),
 	receive {Edge_list, Root_pid} -> ok end,
-	runProcess(Edge_list, Status, Root_pid, Out).
+	runProcess(Edge_list, Status, Root_pid).
 % dijkstra() ->
 
 % creates processes and stores their PID in Num_Id dictionary
-createProcesses(Num_Id, Curr, Processes, Out) ->
+createProcesses(Num_Id, Curr, Processes) ->
 	if
 		Curr > Processes ->
 			Num_Id; % If there is only one process, then no need to spawn aditional processes
 		true ->
-			Pid = spawn(?MODULE, eachProcess, [Out]),
+			Pid = spawn(?MODULE, eachProcess, []),
 			Num_Id1 = dict:store(Curr, Pid, Num_Id),
 			if
 				Curr == Processes ->
 					Num_Id1;
 				true ->
-					createProcesses(Num_Id1, Curr+1, Processes, Out)
+					createProcesses(Num_Id1, Curr+1, Processes)
 			end
 	end.
 	
@@ -146,6 +146,20 @@ receiveMinimum(MinList, Curr, Processes) ->
 					NewList;
 				true ->
 					receiveMinimum(NewList, Curr+1, Processes)
+			end
+	end.
+receiveFinalStatus(Curr, Processes, DistList) ->
+	if
+		Curr > Processes ->
+			DistList;
+		true ->
+			receive PartialList -> ok end,
+			NewList = DistList ++ PartialList,
+			if
+				Curr == Processes ->
+					NewList;
+				true ->
+					receiveFinalStatus(Curr+1, Processes, NewList)
 			end
 	end.
 
@@ -195,7 +209,9 @@ rootProcess(Status, Edge_list, Processes, Num_Id) ->
 					rootProcess(NewStatus, Edge_list, Processes, Num_Id)
 			end;
 		true ->
-			Status
+			Final = [{V, D} ||{V, {D, _}} <- dict:to_list(Status)],
+			DistList = receiveFinalStatus(2, Processes, Final),
+			DistList
 	end.
 
 %% each process will send infinity if there is no unvisited vertex
@@ -205,7 +221,7 @@ main([InF, OutF]) ->
 	
 	N = dict:new(),
 	% Num_Id is the dictionary which maps process number to process PID
-	Num_Id = createProcesses(N, 2, Processes, Out),
+	Num_Id = createProcesses(N, 2, Processes),
 	
 	VList = lists:seq(1, Vertices), % list of numbers of vertices
 	VertexDict = splitVertices(dict:new(), VList, floor(Vertices/Processes), 1, Processes),
@@ -219,9 +235,8 @@ main([InF, OutF]) ->
 		true ->
 			1
 	end,
-	RootSta = [dict:fetch(X, Status) || X <- dict:fetch(1, VertexDict)],
+	RootSta = [dict:fetch(X, Status) || X <- dict:fetch(1, VertexDict)], % create status for root process
 	RootStatus = dict:from_list(RootSta),
-	Result = rootProcess(RootStatus, Edge_list, Processes, Num_Id),
-	Final = [{V, D} ||{V, {D, _}} <- dict:to_list(Result)],
-	lists:foreach(fun({V, D}) -> io:format("~w ~w ~n",[V, D]) end, Final),
+	Result = rootProcess(RootStatus, Edge_list, Processes, Num_Id), % get the final Distance list
+	lists:foreach(fun({V, D}) -> io:format(Out, "~w ~w ~n",[V, D]) end, lists:sort(Result)), % print the sorted list (sorted by vertex number)
 	file:close(Out).
