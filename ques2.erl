@@ -1,5 +1,5 @@
 -module(ques2).
--export([main/1, inputGraph/1, takeEdges/3, eachProcess/0, runProcess/3, createProcesses/3, splitVertices/5, sendSplitStatus/3, rootProcess/4]).
+-export([main/1, inputGraph/1, takeEdges/3, eachProcess/1, runProcess/4, createProcesses/4, splitVertices/5, sendSplitStatus/3, rootProcess/4]).
 %% We assume that the graph is connected
 %% Edge_list is a dictionary Vertex -> [Edge], where Edge = {To, Weight}
 inputGraph(InF) ->
@@ -43,20 +43,25 @@ statusUpdate([], _, _, Status) ->
 	Status;
 statusUpdate([H | T], D, U, Status) ->
 	{To, Weight} = H,
+	% io:format("status ~w~n", [H]),
 	Res = dict:find(To, Status),
 	if
 		Res /= error  ->
-			{Dist, St} = dict:fetch(To, Status),
+			{Dist, Lab} = dict:fetch(To, Status),
 			if
-				Dist > Weight + D ->
-					Status1 = dict:store(To, Weight + D, Status),
-					statusUpdate(T, D, U, Status1)
-			end	
+				Dist > (Weight + D) ->
+					Status1 = dict:store(To, {Weight + D,Lab}, Status),
+					statusUpdate(T, D, U, Status1);
+				true ->
+					statusUpdate(T, D, U, Status)
+			end;
+		true ->
+			statusUpdate(T, D, U, Status)
 	end.
 
 % Processes -> no. of processes , K ->, Vertices -> no. of vertices
 % Status is a dict Vertex -> {distance, visited/unvisited}
-runProcess(Edge_list, Status, Root_pid) ->
+runProcess(Edge_list, Status, Root_pid, Out) ->
 	% create list of un-visited vertices (use list comprehension)
 	StatusList = dict:to_list(Status),
 	Unvisited = [{D, V} || {V, {D, X}} <- StatusList, X == unvisited],
@@ -68,47 +73,51 @@ runProcess(Edge_list, Status, Root_pid) ->
 		false ->
 			{infinity, 0}
 	end,
-	io:format("~w ~n", [MinVal]),
 	% Send min to root
 	Root_pid ! MinVal,
 	% Receive global min(will receive stop on completion)
-	receive {D, U} -> ok end,
-	% {D, U} = {3, 3},
+	receive GlobalMin -> ok end,
+	{D, U} = GlobalMin,
 	if
 		D /= infinity ->
 			% Update Status
 			NewStatus = statusUpdate(dict:fetch(U, Edge_list), D, U, Status),
 			% mark U as visited if present in Status
+			% io:format("new status : ~w ~n", [dict:to_list(NewStatus)]),
 			Res = dict:find(U, Status),
 			if
 				Res /= error ->
 					{ok, {VD, _}} = Res,
-					runProcess(Edge_list, dict:store({VD, visited}, NewStatus), Root_pid);
+					runProcess(Edge_list, dict:store(U , {VD, visited}, NewStatus), Root_pid, Out);
 				true ->
-					runProcess(Edge_list, NewStatus, Root_pid)
-			end
+					runProcess(Edge_list, NewStatus, Root_pid, Out)
+			end;
+		true ->
+			Final = [{V, D} || {V, {D, _}} <- dict:to_list(Status)],
+			lists:foreach(fun({V, D}) -> io:format("~w ~w ~n",[V, D]) end, Final),
+			1
 	end.
 
-eachProcess() ->
+eachProcess(Out) ->
 	receive Sta -> ok end,
 	Status = dict:from_list(Sta),
 	receive {Edge_list, Root_pid} -> ok end,
-	runProcess(Edge_list, Status, Root_pid).
+	runProcess(Edge_list, Status, Root_pid, Out).
 % dijkstra() ->
 
 % creates processes and stores their PID in Num_Id dictionary
-createProcesses(Num_Id, Curr, Processes) ->
+createProcesses(Num_Id, Curr, Processes, Out) ->
 	if
 		Curr > Processes ->
 			Num_Id; % If there is only one process, then no need to spawn aditional processes
 		true ->
-			Pid = spawn(?MODULE, eachProcess, []),
+			Pid = spawn(?MODULE, eachProcess, [Out]),
 			Num_Id1 = dict:store(Curr, Pid, Num_Id),
 			if
 				Curr == Processes ->
 					Num_Id1;
 				true ->
-					createProcesses(Num_Id1, Curr+1, Processes)
+					createProcesses(Num_Id1, Curr+1, Processes, Out)
 			end
 	end.
 	
@@ -152,9 +161,10 @@ rootProcess(Status, Edge_list, Processes, Num_Id) ->
 		false ->
 			{infinity, 0}
 	end,
-	io:format("~w ~n", [MinVal]),
+	% io:format("root MinVal ~w ~n", [MinVal]),
 	% receive from all the process their minimum vertex, distance.
 	MinList = receiveMinimum([MinVal], 2, Processes),
+	% io:format("~w ~n", [MinList]),
 	% if minimum is infinity than end the algorithm and inform other processes as well(Just by sending infinity)
 	Len1 = length(MinList),
 	GlobalMin = case Len1 > 0 of
@@ -167,10 +177,10 @@ rootProcess(Status, Edge_list, Processes, Num_Id) ->
 	% send the Distance and Node of GloabalMin to all other processes
 	if
 		Processes > 1 ->
-			lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! GloabalMin end, lists:seq(2, Processes))
+			lists:foreach(fun(K) -> dict:fetch(K, Num_Id) ! GlobalMin end, lists:seq(2, Processes))
 	end,
 	% update the status dictionary by using dijkstra algo
-	{D, U} = GloabalMin,
+	{D, U} = GlobalMin,
 	if
 		D /= infinity ->
 			% Update Status
@@ -180,23 +190,26 @@ rootProcess(Status, Edge_list, Processes, Num_Id) ->
 			if
 				Res /= error ->
 					{ok, {VD, _}} = Res,
-					rootProcess(dict:store({VD, visited}, Edge_list, NewStatus), Processes, Num_Id);
+					rootProcess(dict:store(U, {VD, visited}, NewStatus), Edge_list, Processes, Num_Id);
 				true ->
 					rootProcess(NewStatus, Edge_list, Processes, Num_Id)
-			end
+			end;
+		true ->
+			Status
 	end.
 
 %% each process will send infinity if there is no unvisited vertex
 main([InF, OutF]) ->
-	{Edge_list, Source, Processes, Vertices, Edges} = inputGraph(InF),
+	{Edge_list, Source, Processes, Vertices, _} = inputGraph(InF),
+	{ok, Out} = file:open(OutF, [write]), % open the output file
+	
 	N = dict:new(),
 	% Num_Id is the dictionary which maps process number to process PID
-	Num_Id = createProcesses(N, 2, Processes),
-	{ok, Out} = file:open(OutF, [write]), % open the output file
-
+	Num_Id = createProcesses(N, 2, Processes, Out),
+	
 	VList = lists:seq(1, Vertices), % list of numbers of vertices
 	VertexDict = splitVertices(dict:new(), VList, floor(Vertices/Processes), 1, Processes),
-	Sta = [if Y > 1 -> {Y, {Y, {infinity, unvisited}}}; true -> {Y, {Y,{0, unvisited}}} end || Y <- VList],
+	Sta = [if Y /= Source -> {Y, {Y, {infinity, unvisited}}}; true -> {Y, {Y,{0, unvisited}}} end || Y <- VList],
 	Status = dict:from_list(Sta),
 	% Send data to other processes only if they exist
 	if
@@ -206,5 +219,7 @@ main([InF, OutF]) ->
 	end,
 	RootSta = [dict:fetch(X, Status) || X <- dict:fetch(1, VertexDict)],
 	RootStatus = dict:from_list(RootSta),
-	rootProcess(RootStatus, Edge_list, Processes, Num_Id),
+	Result = rootProcess(RootStatus, Edge_list, Processes, Num_Id),
+	Final = [{V, D} ||{V, {D, _}} <- dict:to_list(Result)],
+	lists:foreach(fun({V, D}) -> io:format("~w ~w ~n",[V, D]) end, Final),
 	file:close(Out).
