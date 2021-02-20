@@ -4,7 +4,7 @@
 passing(Num, Limit, OutF, Root_pid) ->
 	% receive the token
 	receive Token -> ok end,
-	io:format(OutF, "Process ~w recieved token ~w from Process ~w~n", [Num, Token, Num-1]),
+	io:format(OutF, "Process ~w recieved token ~w from Process ~w.~n", [Num, Token, Num-1]),
 	if
 		Num < Limit-1 ->
 			% send token to next process
@@ -34,5 +34,5 @@ main([InF, OutF]) ->
 	Pid ! Token,
 	% receive the token from the last process
 	receive Token_r -> ok end,
-	io:format(Out,"Process 0 recieved token ~w from Process ~w~n", [Token_r, Processes-1]),
+	io:format(Out,"Process 0 recieved token ~w from Process ~w.~n", [Token_r, Processes-1]),
 	file:close(Out).
