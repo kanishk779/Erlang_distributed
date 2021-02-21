@@ -10,11 +10,20 @@ passing(Num, Limit, OutF, Root_pid) ->
 is used for spawning the next process and sending the token to it. In case of
 last process it need not spawn a new process as it will pass the token to the
 root process.
+```
+Time complexity = O(P) P => Number of processes
+```
 
 ## Problem 2
 In this problem we need to implement parallel Dijkstra shortest path algorithm
 (single source). I have used the approach mentioned in below PDF.
 https://www8.cs.umu.se/kurser/5DV050/VT10/handouts/F10.pdf
+
+```
+Time complexity = O(N * (N/P)) N => Number of vertices and P => Number of
+Processes. N/P term is there because we divide the process of minimum finding
+among P processes.
+```
 
 ```
 inputGraph(InF) ->
