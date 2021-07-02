@@ -1,5 +1,8 @@
-# DS_assign2
+# Erlang Assignments
 Erlang assignment
+This assignment was done as part of the distributed systems course. The
+objective of this assignment was to appreciate the semi-functional language
+**Erlang**. Erlang is designed with a mechanism that makes it easy for external processes to monitor for crashes (or hardware failures), rather than an in-process mechanism like exception handling used in many other programming languages.
 
 ## Problem 1
 In this problem we need to pass tokens between processes in circular fashion.
